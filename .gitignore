@@ -1,0 +1,11 @@
+claude/
+note.txt
+__pycache__/
+*.pyc
+.DS_Store
+*.pkl
+cat_detection_vault/
+detection_vault/
+resnet_detection_vault/
+vault/
+data/
