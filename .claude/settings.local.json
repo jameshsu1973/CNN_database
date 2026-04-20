@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(sed -i 's/^### 3\\\\.1 物理/### 2.1 物理/' 0420.md)",
+      "Bash(sed -i 's/^### 3\\\\.2 Collection/### 2.2 Collection/' 0420.md)",
+      "Bash(sed -i 's/^### 3\\\\.3 Record/### 2.3 Record/' 0420.md)",
+      "Bash(sed -i 's/^### 3\\\\.4 關係/### 2.4 關係/' 0420.md)",
+      "Bash(sed -i 's/^### 3\\\\.5 SQL/### 2.5 SQL/' 0420.md)"
     ]
   }
 }
