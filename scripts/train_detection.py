@@ -17,8 +17,9 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from cnn_weight_vault.detection_vault import DetectionWeightVault
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
 from cnn_weight_vault.detection_model import create_detection_model, DetectionModelWrapper, DBConv2dDetect, DBLinearDetect
+from cnn_weight_vault.config import get_config
 
 
 class SyntheticObjectDataset(Dataset):
@@ -189,7 +190,7 @@ def evaluate(model, test_loader, device):
     return avg_loss, avg_map
 
 
-def run_first_training(vault: DetectionWeightVault,
+def run_first_training(vault: ChromaWeightVault,
                        object_category: str,
                        device: str = 'cuda'):
     """Run first training (cold start) to populate vault."""
@@ -233,7 +234,7 @@ def run_first_training(vault: DetectionWeightVault,
     return test_map
 
 
-def run_second_training(vault: DetectionWeightVault,
+def run_second_training(vault: ChromaWeightVault,
                         object_category: str,
                         device: str = 'cuda',
                         force_load: bool = True):
@@ -289,7 +290,7 @@ def run_second_training(vault: DetectionWeightVault,
     return test_map
 
 
-def run_cross_category_test(vault: DetectionWeightVault,
+def run_cross_category_test(vault: ChromaWeightVault,
                            train_category: str,
                            test_category: str,
                            device: str = 'cuda'):
@@ -340,11 +341,13 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
 
-    # Create vault
-    vault = DetectionWeightVault(
+    # Create ChromaDB vault
+    config = get_config()
+    vault = ChromaWeightVault(
+        collection_name=config.chroma_collection_name,
+        persist_directory="./chroma_db_detection",
         similarity_threshold=0.3,  # Balanced threshold for detection
-        top_k_ratio=0.3,
-        vault_path="./detection_vault"
+        top_k_ratio=0.3
     )
 
     # Demo 1: Train on "cat" detection (cold start - populate vault)

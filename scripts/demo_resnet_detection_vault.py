@@ -23,10 +23,11 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from cnn_weight_vault.detection_vault import DetectionWeightVault
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
 from cnn_weight_vault.detection_model import (
     DBConv2dDetect, DBLinearDetect, convert_to_db_layers
 )
+from cnn_weight_vault.config import get_config
 
 
 class SimpleDetectionHead(nn.Module):
@@ -377,19 +378,26 @@ def compare_results(cold_results, vault_results):
 def main():
     """Main demo."""
     print("\n" + "="*70)
-    print("DATABASE-DRIVEN CNN - RESNET-18 DETECTION DEMO")
+    print("DATABASE-DRIVEN CNN - RESNET-18 DETECTION DEMO (ChromaDB)")
     print("="*70)
-    print("\nThis demo uses REAL ResNet-18 backbone:")
+    print("\nThis demo uses REAL ResNet-18 backbone with ChromaDB:")
     print("  1. First: Train ResNet-18 + detection head (cold start)")
-    print("  2. Store ResNet Conv/Linear weights to vault")
-    print("  3. Second: New ResNet-18, init backbone from vault")
+    print("  2. Store ResNet Conv/Linear weights to ChromaDB vault")
+    print("  3. Second: New ResNet-18, init backbone from ChromaDB vault")
     print("  4. Compare convergence")
 
-    # Create vault
-    vault = DetectionWeightVault(
+    # Load config
+    config = get_config()
+    print(f"\nUsing ChromaDB configuration:")
+    print(f"  Persist directory: {config.chroma_persist_dir}")
+    print(f"  Similarity threshold: {config.similarity_threshold}")
+
+    # Create ChromaDB vault
+    vault = ChromaWeightVault(
+        collection_name=config.chroma_collection_name,
+        persist_directory="./chroma_db_resnet_detection",
         similarity_threshold=0.3,
-        top_k_ratio=0.3,
-        vault_path="../resnet_detection_vault"
+        top_k_ratio=0.3
     )
 
     num_epochs = 3  # Quick demo
@@ -399,11 +407,15 @@ def main():
 
     # Show vault status
     print("\n" + "="*70)
-    print("VAULT STATUS")
+    print("CHROMADB VAULT STATUS")
     print("="*70)
     stats = vault.get_stats()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
+    print(f"  Total entries: {stats['total_entries']}")
+    print(f"  Collections: {stats['collections']}")
+    print(f"  Entries per collection:")
+    for name, count in stats['entries_per_collection'].items():
+        if count > 0:
+            print(f"    {name}: {count}")
 
     # Second training
     vault_results = second_training_run(vault, category="object", num_epochs=num_epochs)
@@ -433,7 +445,10 @@ Why only store backbone?
 This is the correct transfer learning design!
 
 Files created:
-  - ../resnet_detection_vault/: Contains ResNet-18 backbone weights only
+  - ./chroma_db_resnet_detection/: Contains ResNet-18 backbone weights in ChromaDB
+    - chroma.sqlite3 (metadata)
+    - *.parquet (vector data)
+    - HNSW indexes for fast similarity search
 """
 
 

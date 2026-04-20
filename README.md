@@ -1,25 +1,27 @@
 # Database-Driven CNN Initialization
 
-A PyTorch implementation of Database-Driven CNN Weight Initialization using HNSW-inspired vector database for efficient weight retrieval.
+A PyTorch implementation of Database-Driven CNN Weight Initialization using **ChromaDB** vector database for efficient weight retrieval.
 
 ## Overview
 
-This project replaces traditional random weight initialization (He/Xavier) with a queryable, cumulative database of optimized historical weights. The system supports:
+This project replaces traditional random weight initialization (He/Xavier) with a queryable, cumulative database of optimized historical weights using **ChromaDB** as the vector database backend. The system supports:
 
 - **Image Classification** (MNIST, CIFAR-10, etc.)
 - **Object Detection** (single-class and multi-class)
 - **Transfer Learning** (cross-category weight sharing)
 - **Existing Model Wrapping** (ResNet, VGG, etc. without modification)
+- **ChromaDB Integration** (HNSW indexing, cosine similarity, persistent storage)
 
 ## Key Features
 
-1. **Automatic Weight Storage**: After training epochs, weights are automatically stored to a vector database
-2. **Smart Initialization**: New models initialize from similar weights in the database
-3. **Force Load Mode**: Bypass similarity checks to guarantee vault weight loading
-4. **Object Category Tagging**: Label weights by object type (e.g., "cat", "dog") for transfer learning
-5. **Cold Start Fallback**: Falls back to He initialization when database is empty
-6. **O(log n) Retrieval**: HNSW-inspired graph structure for fast similarity search
+1. **ChromaDB Vector Database**: Native vector storage with HNSW indexing for O(log n) similarity search
+2. **Automatic Weight Storage**: After training epochs, weights are automatically stored to ChromaDB
+3. **Smart Initialization**: New models initialize from similar weights in the database using cosine similarity
+4. **Force Load Mode**: Bypass similarity checks to guarantee vault weight loading
+5. **Object Category Tagging**: Label weights by object type (e.g., "cat", "dog") for transfer learning
+6. **Cold Start Fallback**: Falls back to He initialization when database is empty
 7. **Top-K Masking**: Only most influential weights (top 30%) are stored
+8. **Persistent Storage**: Automatic persistence via DuckDB + Parquet backend
 
 ## Installation
 
@@ -32,20 +34,23 @@ pip install -r requirements.txt
 - PyTorch 2.0+
 - NumPy
 - torchvision
+- **ChromaDB >= 0.4.22** (vector database)
+- PyYAML (configuration)
 
 ## Quick Start
 
-### 1. Basic Image Classification
+### 1. Basic Image Classification (using ChromaDB)
 
 ```python
-from weight_vault import WeightVault
-from db_initialization import create_db_cnn, DBModelWrapper
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
+from cnn_weight_vault.db_initialization import create_db_cnn, DBModelWrapper
 
-# Create vault
-vault = WeightVault(
+# Create ChromaDB vault
+vault = ChromaWeightVault(
+    collection_name="cnn_weights",
+    persist_directory="./chroma_db",
     similarity_threshold=0.85,
-    top_k_ratio=0.3,
-    vault_path="./vault"
+    top_k_ratio=0.3
 )
 
 # Create model with DB-aware layers
@@ -56,35 +61,36 @@ wrapper = DBModelWrapper(model, vault, model_name="my_cnn")
 for epoch in range(num_epochs):
     train_loss = train_epoch(model, ...)
     test_acc = test_epoch(model, ...)
-    
-    # Store weights to vault after each epoch
+
+    # Store weights to ChromaDB vault after each epoch
     wrapper.store_epoch_weights(epoch, test_acc)
 
-# Save vault to disk
-wrapper.save_vault()
+# Save vault (ChromaDB auto-persists)
+vault.save_vault()
 ```
 
-### 2. Object Detection
+### 2. Object Detection (using ChromaDB)
 
 ```python
-from detection_vault import DetectionWeightVault
-from detection_model import create_detection_model, DetectionModelWrapper
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
+from cnn_weight_vault.detection_model import create_detection_model, DetectionModelWrapper
 
-# Create vault
-vault = DetectionWeightVault(
-    similarity_threshold=0.3,
-    vault_path="./detection_vault"
+# Create ChromaDB vault
+vault = ChromaWeightVault(
+    collection_name="detection_weights",
+    persist_directory="./chroma_db_detection",
+    similarity_threshold=0.3
 )
 
 # Create object detection model (e.g., cat detector)
 model = create_detection_model(
-    vault, 
+    vault,
     object_category="cat",
     num_classes=1
 )
 wrapper = DetectionModelWrapper(
-    model, 
-    vault, 
+    model,
+    vault,
     model_name="cat_detector",
     object_category="cat"
 )
@@ -92,8 +98,8 @@ wrapper = DetectionModelWrapper(
 # Train...
 for epoch in range(num_epochs):
     train_loss, train_map = train_epoch(model, ...)
-    
-    # Store weights
+
+    # Store weights to ChromaDB
     wrapper.store_epoch_weights(epoch, train_map)
 
 wrapper.save_vault()
@@ -104,11 +110,11 @@ wrapper.save_vault()
 Force load mode ensures weights are always loaded from vault (if available):
 
 ```python
-from detection_model import DBConv2dDetect, DBLinearDetect
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
+from cnn_weight_vault.detection_model import DBConv2dDetect, DBLinearDetect
 
-# Load existing vault
-vault = DetectionWeightVault(vault_path="./detection_vault")
-vault.load_vault()
+# Load existing ChromaDB vault
+vault = ChromaWeightVault(persist_directory="./chroma_db")
 
 # Enable force load mode
 DBConv2dDetect.set_force_load(True)
@@ -128,14 +134,14 @@ Convert ANY PyTorch model to use database-driven initialization:
 
 ```python
 import torchvision.models as models
-from detection_vault import DetectionWeightVault
-from detection_model import convert_to_db_layers
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
+from cnn_weight_vault.detection_model import convert_to_db_layers
 
 # Load pretrained ResNet-18
 model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
 
-# Create vault
-vault = DetectionWeightVault(vault_path="./resnet_vault")
+# Create ChromaDB vault
+vault = ChromaWeightVault(persist_directory="./chroma_db_resnet")
 
 # Wrap model with DB-aware layers
 model_db = convert_to_db_layers(
@@ -148,7 +154,7 @@ model_db = convert_to_db_layers(
 # Forward pass works normally
 output = model_db(torch.randn(1, 3, 224, 224))
 
-# Now train and weights will be stored to vault
+# Now train and weights will be stored to ChromaDB
 ```
 
 ## Running Examples
@@ -208,8 +214,10 @@ MNIST classification example with vault initialization.
 ### Pattern 1: First Training (Cold Start)
 
 ```python
-# Create new vault
-vault = DetectionWeightVault(vault_path="./my_vault")
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
+
+# Create new ChromaDB vault
+vault = ChromaWeightVault(persist_directory="./chroma_db")
 
 # Create model (will use He initialization)
 model = create_detection_model(vault, object_category="cat")
@@ -220,15 +228,14 @@ for epoch in range(num_epochs):
     train(model, ...)
     wrapper.store_epoch_weights(epoch, accuracy)
 
-wrapper.save_vault()
+vault.save_vault()
 ```
 
 ### Pattern 2: Subsequent Training (Vault-Init with Similarity)
 
 ```python
-# Load existing vault
-vault = DetectionWeightVault(vault_path="./my_vault")
-vault.load_vault()
+# ChromaDB vault auto-loads from persist_directory
+vault = ChromaWeightVault(persist_directory="./chroma_db")
 
 # Create model (will auto-load if similarity > threshold)
 model = create_detection_model(vault, object_category="cat")
@@ -239,9 +246,8 @@ model = create_detection_model(vault, object_category="cat")
 ### Pattern 3: Force Load Mode (Guaranteed Vault-Init)
 
 ```python
-# Load vault
-vault = DetectionWeightVault(vault_path="./my_vault")
-vault.load_vault()
+# ChromaDB vault auto-loads from persist_directory
+vault = ChromaWeightVault(persist_directory="./chroma_db")
 
 # Create model with force_load=True
 model = create_detection_model(
@@ -255,7 +261,7 @@ model = create_detection_model(
 
 ```python
 # Train on "cat"
-vault = DetectionWeightVault(vault_path="./vault")
+vault = ChromaWeightVault(persist_directory="./chroma_db")
 model = create_detection_model(vault, object_category="cat")
 # ... train and save ...
 
@@ -266,13 +272,14 @@ model = create_detection_model(vault, object_category="dog")
 
 ## API Reference
 
-### DetectionWeightVault
+### ChromaWeightVault
 
 ```python
-vault = DetectionWeightVault(
-    similarity_threshold=0.3,  # Cosine similarity threshold
-    top_k_ratio=0.3,           # Retain top 30% weights
-    vault_path="./vault"     # Storage path
+vault = ChromaWeightVault(
+    collection_name="cnn_weights",      # Collection name prefix
+    persist_directory="./chroma_db",    # ChromaDB storage path
+    similarity_threshold=0.3,           # Cosine similarity threshold
+    top_k_ratio=0.3                     # Retain top 30% weights
 )
 
 # Methods
@@ -280,7 +287,8 @@ vault.store_weights(layer, layer_name, model_name, epoch, accuracy, category)
 vault.get_initialization_weights(layer, layer_name, category, force=False)
 vault.has_weights_for_layer(layer, layer_name)
 vault.save_vault()
-vault.load_vault()
+vault.migrate_from_pickle(pickle_path)  # Migrate from legacy pickle vault
+```
 vault.get_stats()
 ```
 
@@ -409,14 +417,6 @@ Normal mode checks similarity before loading:
 Force load mode:
 - If weights exist in vault → Load from vault
 - No weights in vault → He initialization
-
-## Performance Comparison
-
-| Mode | Initial Loss | Epoch 1 mAP | Convergence |
-|------|--------------|-------------|-------------|
-| Cold Start | 7.31 | 31.23% | Baseline |
-| Vault-Init | 4.52 | 45.67% | 1.5x faster |
-| Force Load | 2.70 | 61.45% | 2.7x faster |
 
 ## Troubleshooting
 

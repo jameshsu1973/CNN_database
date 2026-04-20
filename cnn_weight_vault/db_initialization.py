@@ -1,6 +1,8 @@
 """
 Database-Driven Weight Initialization for PyTorch
 Integrates Weight Vault with PyTorch layers for automatic weight storage/retrieval
+
+Uses ChromaDB vector database for weight storage and retrieval.
 """
 
 import torch
@@ -8,16 +10,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from typing import Optional, Dict, Any
-from .weight_vault import WeightVault
+from .chroma_vault import ChromaWeightVault
 
 
 class DBConv2d(nn.Conv2d):
     """
     Conv2d layer with database-driven initialization.
     Automatically stores weights after training and retrieves from vault for initialization.
+
+    Uses ChromaDB vector database for weight storage and retrieval.
     """
 
-    _vault: Optional[WeightVault] = None
+    _vault: Optional[ChromaWeightVault] = None
     _model_name: str = "default_model"
     _layer_counter: int = 0
 
@@ -77,8 +81,8 @@ class DBConv2d(nn.Conv2d):
             nn.init.constant_(self.bias, 0)
 
     @classmethod
-    def set_vault(cls, vault: WeightVault):
-        """Set the global vault for all DBConv2d layers."""
+    def set_vault(cls, vault: ChromaWeightVault):
+        """Set the global ChromaDB vault for all DBConv2d layers."""
         cls._vault = vault
 
     @classmethod
@@ -102,9 +106,11 @@ class DBConv2d(nn.Conv2d):
 class DBLinear(nn.Linear):
     """
     Linear layer with database-driven initialization.
+
+    Uses ChromaDB vector database for weight storage and retrieval.
     """
 
-    _vault: Optional[WeightVault] = None
+    _vault: Optional[ChromaWeightVault] = None
     _model_name: str = "default_model"
     _layer_counter: int = 0
 
@@ -146,8 +152,8 @@ class DBLinear(nn.Linear):
             nn.init.constant_(self.bias, 0)
 
     @classmethod
-    def set_vault(cls, vault: WeightVault):
-        """Set the global vault for all DBLinear layers."""
+    def set_vault(cls, vault: ChromaWeightVault):
+        """Set the global vault for all DBLinear layers (WeightVault or ChromaWeightVault)."""
         cls._vault = vault
 
     @classmethod
@@ -172,9 +178,11 @@ class DBModelWrapper:
     """
     Wrapper for PyTorch models to enable database-driven training.
     Hooks into training loop to automatically store weights after epochs.
+
+    Uses ChromaDB vector database for weight storage and retrieval.
     """
 
-    def __init__(self, model: nn.Module, vault: WeightVault,
+    def __init__(self, model: nn.Module, vault: ChromaWeightVault,
                  model_name: str = "model"):
         self.model = model
         self.vault = vault
@@ -224,7 +232,7 @@ class DBModelWrapper:
         return self.vault.get_stats()
 
 
-def create_db_cnn(vault: WeightVault, num_classes: int = 10) -> nn.Module:
+def create_db_cnn(vault: ChromaWeightVault, num_classes: int = 10) -> nn.Module:
     """
     Create a simple CNN using database-driven layers.
 

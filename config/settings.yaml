@@ -1,0 +1,47 @@
+# CNN Weight Vault Configuration
+# Vector Database Settings
+
+vector_db:
+  # Database type: chromadb, qdrant, or faiss (currently supported: chromadb)
+  type: chromadb
+
+  # ChromaDB specific settings
+  chromadb:
+    # Path to store ChromaDB persistent data
+    persist_directory: "./chroma_db"
+    # Collection name for CNN weights
+    collection_name: "cnn_weights"
+    # Distance metric: cosine, l2, or ip (inner product)
+    distance_metric: "cosine"
+    # Embedding dimension (will be auto-detected based on weights)
+    # This is a fallback value
+    embedding_dimension: 512
+
+  # Search settings
+  search:
+    # Default number of results to return
+    default_top_k: 3
+    # Similarity threshold (0-1, higher is more similar)
+    similarity_threshold: 0.85
+    # Top-k ratio for weight masking (0-1)
+    top_k_ratio: 0.3
+
+# Model settings
+model:
+  # Default model name
+  default_model_name: "default_model"
+  # Supported layer types
+  supported_layers:
+    - Conv2d
+    - Linear
+
+# Vault paths (legacy support)
+vault:
+  # Default vault path for pickle-based storage (backward compatibility)
+  default_path: "./vault"
+  detection_path: "./detection_vault"
+
+# Logging
+logging:
+  level: INFO
+  show_init_messages: true

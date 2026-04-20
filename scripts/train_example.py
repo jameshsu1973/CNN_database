@@ -14,10 +14,11 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from cnn_weight_vault.weight_vault import WeightVault
+from cnn_weight_vault.chroma_vault import ChromaWeightVault
 from cnn_weight_vault.db_initialization import (
     create_db_cnn, DBModelWrapper, DBConv2d, DBLinear
 )
+from cnn_weight_vault.config import get_config
 
 
 def get_mnist_loaders(batch_size=64):
@@ -85,7 +86,7 @@ def evaluate(model, test_loader, criterion, device):
     return test_loss / len(test_loader), accuracy
 
 
-def run_first_training(vault: WeightVault, device: str = 'cuda'):
+def run_first_training(vault: ChromaWeightVault, device: str = 'cuda'):
     """
     Run the first training session (cold start).
     This will populate the vault with initial weights.
@@ -121,7 +122,7 @@ def run_first_training(vault: WeightVault, device: str = 'cuda'):
     return test_acc
 
 
-def run_second_training(vault: WeightVault, device: str = 'cuda'):
+def run_second_training(vault: ChromaWeightVault, device: str = 'cuda'):
     """
     Run the second training session using vault-initialized weights.
     This demonstrates the speedup from database-driven initialization.
@@ -171,11 +172,13 @@ def compare_convergence():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
 
-    # Create vault
-    vault = WeightVault(
+    # Create ChromaDB vault
+    config = get_config()
+    vault = ChromaWeightVault(
+        collection_name=config.chroma_collection_name,
+        persist_directory="./chroma_db_mnist",
         similarity_threshold=0.0,  # Force vault initialization for demo
-        top_k_ratio=0.3,
-        vault_path="./vault"
+        top_k_ratio=0.3
     )
 
     # Run first training (cold start)

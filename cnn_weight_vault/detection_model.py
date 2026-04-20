@@ -1,6 +1,8 @@
 """
 Object Detection Model with Database-Driven Weight Initialization
 Simple YOLO-like architecture for single-class object detection
+
+Uses ChromaDB vector database for weight storage and retrieval.
 """
 
 import torch
@@ -8,16 +10,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from typing import Optional, Dict, Any, Tuple
-from .detection_vault import DetectionWeightVault
+from .chroma_vault import ChromaWeightVault
 
 
 class DBConv2dDetect(nn.Conv2d):
     """
     Conv2d layer for object detection with database-driven initialization.
     Supports backbone and detection head layers.
+
+    Uses ChromaDB vector database for weight storage and retrieval.
     """
 
-    _vault: Optional[DetectionWeightVault] = None
+    _vault: Optional[ChromaWeightVault] = None
     _model_name: str = "detection_model"
     _object_category: Optional[str] = None
     _layer_counter: int = 0
@@ -93,8 +97,8 @@ class DBConv2dDetect(nn.Conv2d):
             nn.init.constant_(self.bias, 0)
 
     @classmethod
-    def set_vault(cls, vault: DetectionWeightVault):
-        """Set the global vault."""
+    def set_vault(cls, vault: ChromaWeightVault):
+        """Set the global ChromaDB vault."""
         cls._vault = vault
 
     @classmethod
@@ -127,9 +131,12 @@ class DBConv2dDetect(nn.Conv2d):
 
 
 class DBLinearDetect(nn.Linear):
-    """Linear layer for object detection with database-driven initialization."""
+    """Linear layer for object detection with database-driven initialization.
 
-    _vault: Optional[DetectionWeightVault] = None
+    Uses ChromaDB vector database for weight storage and retrieval.
+    """
+
+    _vault: Optional[ChromaWeightVault] = None
     _model_name: str = "detection_model"
     _object_category: Optional[str] = None
     _layer_counter: int = 0
@@ -191,7 +198,8 @@ class DBLinearDetect(nn.Linear):
             nn.init.constant_(self.bias, 0)
 
     @classmethod
-    def set_vault(cls, vault: DetectionWeightVault):
+    def set_vault(cls, vault: ChromaWeightVault):
+        """Set the global ChromaDB vault."""
         cls._vault = vault
 
     @classmethod
@@ -297,9 +305,12 @@ class SimpleDetectionNet(nn.Module):
 
 
 class DetectionModelWrapper:
-    """Wrapper for object detection models to enable database-driven training."""
+    """Wrapper for object detection models to enable database-driven training.
 
-    def __init__(self, model: nn.Module, vault: DetectionWeightVault,
+    Uses ChromaDB vector database for weight storage and retrieval.
+    """
+
+    def __init__(self, model: nn.Module, vault: ChromaWeightVault,
                  model_name: str = "detection_model",
                  object_category: Optional[str] = None,
                  force_load: bool = False):
@@ -345,7 +356,7 @@ class DetectionModelWrapper:
         return self.vault.get_stats()
 
 
-def create_detection_model(vault: DetectionWeightVault,
+def create_detection_model(vault: ChromaWeightVault,
                           object_category: str = "object",
                           num_classes: int = 1,
                           force_load: bool = False) -> SimpleDetectionNet:
@@ -353,7 +364,7 @@ def create_detection_model(vault: DetectionWeightVault,
     Create an object detection model with database-driven initialization.
 
     Args:
-        vault: The DetectionWeightVault instance
+        vault: The ChromaWeightVault instance
         object_category: Type of object (e.g., "cat", "dog", "car")
         num_classes: Number of classes (usually 1 for single-class detection)
         force_load: If True, always use vault weights when available
@@ -374,7 +385,7 @@ def create_detection_model(vault: DetectionWeightVault,
     return model
 
 
-def convert_to_db_layers(model: nn.Module, vault: DetectionWeightVault = None,
+def convert_to_db_layers(model: nn.Module, vault: ChromaWeightVault = None,
                          object_category: str = None, force_load: bool = False):
     """
     Convert all Conv2d and Linear layers in a model to DB-aware versions.
@@ -383,7 +394,7 @@ def convert_to_db_layers(model: nn.Module, vault: DetectionWeightVault = None,
 
     Args:
         model: The PyTorch model to wrap
-        vault: The DetectionWeightVault instance
+        vault: The ChromaWeightVault instance
         object_category: Category tag for weights (e.g., "cat", "dog")
         force_load: If True, always load from vault when weights exist
 
