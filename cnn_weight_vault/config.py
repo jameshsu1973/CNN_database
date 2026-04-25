@@ -87,6 +87,16 @@ class Config:
         vector_db = self.get_vector_db_config()
         return vector_db.get('chromadb', {})
 
+    def get_milvus_config(self) -> Dict[str, Any]:
+        """Get Milvus/Zilliz Cloud specific configuration."""
+        vector_db = self.get_vector_db_config()
+        return vector_db.get('milvus', {})
+
+    def get_qdrant_config(self) -> Dict[str, Any]:
+        """Get Qdrant Cloud specific configuration."""
+        vector_db = self.get_vector_db_config()
+        return vector_db.get('qdrant', {})
+
     def get_search_config(self) -> Dict[str, Any]:
         """Get search configuration."""
         return self._config.get('search', {})

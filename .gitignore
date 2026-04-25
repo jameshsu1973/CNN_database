@@ -12,3 +12,4 @@ data/
 CLAUDE.md
 chroma_db_cat_detection/
 test_chroma_db/
+config/settings.yaml

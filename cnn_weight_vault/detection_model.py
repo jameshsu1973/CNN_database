@@ -59,7 +59,16 @@ class DBConv2dDetect(nn.Conv2d):
             self._he_initialization()
             return
 
-        # Check if vault has weights for this layer
+        # Check if this is a cold-start run (no vault loading at all)
+        # Cold start means: first training run = pure random/He initialization
+        if not DBConv2dDetect._force_load:
+            # Cold start mode: skip vault, use He initialization
+            self._he_initialization()
+            cat_str = f" for {DBConv2dDetect._object_category}" if DBConv2dDetect._object_category else ""
+            print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
+            return
+
+        # Force load mode: load from vault
         has_weights = DBConv2dDetect._vault.has_weights_for_layer(self, self.layer_name)
 
         if has_weights and DBConv2dDetect._force_load:
@@ -73,22 +82,10 @@ class DBConv2dDetect(nn.Conv2d):
                       f"(category: {DBConv2dDetect._object_category or 'any'})")
                 return
 
-        # Normal mode: check similarity
-        vault_weights = DBConv2dDetect._vault.get_initialization_weights(
-            self, self.layer_name, DBConv2dDetect._object_category, force=False
-        )
-
-        if vault_weights is not None:
-            if vault_weights.shape == self.weight.shape:
-                self.weight.data = vault_weights
-                print(f"[DBInit] Layer {self.layer_name}: Initialized from vault "
-                      f"(category: {DBConv2dDetect._object_category or 'any'})")
-            else:
-                self._he_initialization()
-        else:
-            self._he_initialization()
-            cat_str = f" for {DBConv2dDetect._object_category}" if DBConv2dDetect._object_category else ""
-            print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
+        # Fallback: He initialization
+        self._he_initialization()
+        cat_str = f" for {DBConv2dDetect._object_category}" if DBConv2dDetect._object_category else ""
+        print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
 
     def _he_initialization(self):
         """Standard He initialization for cold start."""
@@ -163,11 +160,17 @@ class DBLinearDetect(nn.Linear):
             self._he_initialization()
             return
 
-        # Check if vault has weights for this layer
+        # Check if this is a cold-start run
+        if not DBLinearDetect._force_load:
+            self._he_initialization()
+            cat_str = f" for {DBLinearDetect._object_category}" if DBLinearDetect._object_category else ""
+            print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
+            return
+
+        # Force load mode
         has_weights = DBLinearDetect._vault.has_weights_for_layer(self, self.layer_name)
 
         if has_weights and DBLinearDetect._force_load:
-            # Force mode: always load from vault
             vault_weights = DBLinearDetect._vault.get_initialization_weights(
                 self, self.layer_name, DBLinearDetect._object_category, force=True
             )
@@ -177,19 +180,10 @@ class DBLinearDetect(nn.Linear):
                       f"(category: {DBLinearDetect._object_category or 'any'})")
                 return
 
-        # Normal mode: check similarity
-        vault_weights = DBLinearDetect._vault.get_initialization_weights(
-            self, self.layer_name, DBLinearDetect._object_category, force=False
-        )
-
-        if vault_weights is not None and vault_weights.shape == self.weight.shape:
-            self.weight.data = vault_weights
-            print(f"[DBInit] Layer {self.layer_name}: Initialized from vault "
-                  f"(category: {DBLinearDetect._object_category or 'any'})")
-        else:
-            self._he_initialization()
-            cat_str = f" for {DBLinearDetect._object_category}" if DBLinearDetect._object_category else ""
-            print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
+        # Fallback
+        self._he_initialization()
+        cat_str = f" for {DBLinearDetect._object_category}" if DBLinearDetect._object_category else ""
+        print(f"[DBInit] Layer {self.layer_name}: Cold start{cat_str} - using He initialization")
 
     def _he_initialization(self):
         """Standard He initialization."""

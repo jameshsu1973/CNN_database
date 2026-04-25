@@ -9,8 +9,14 @@ Uses ChromaDB vector database for efficient similarity search.
 
 __version__ = "2.0.0"
 
-# ChromaDB-based vault (unified vector database)
+# ChromaDB-based vault (local vector database)
 from .chroma_vault import ChromaWeightVault
+
+# Milvus/Zilliz Cloud-based vault (cloud vector database)
+from .milvus_vault import MilvusWeightVault
+
+# Qdrant Cloud-based vault (cloud vector database with higher dimension limit)
+from .qdrant_vault import QdrantWeightVault
 
 # Configuration
 from .config import get_config, reload_config, Config
@@ -26,8 +32,14 @@ from .detection_model import (
 )
 
 __all__ = [
-    # ChromaDB vault (unified)
+    # ChromaDB vault (local)
     'ChromaWeightVault',
+    
+    # Milvus vault (cloud)
+    'MilvusWeightVault',
+    
+    # Qdrant vault (cloud)
+    'QdrantWeightVault',
 
     # Classification layers
     'DBConv2d',

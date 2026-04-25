@@ -2,10 +2,10 @@
 # Vector Database Settings
 
 vector_db:
-  # Database type: chromadb, qdrant, or faiss (currently supported: chromadb)
+  # Database type: chromadb, milvus, qdrant (currently supported: chromadb, milvus, qdrant)
   type: chromadb
 
-  # ChromaDB specific settings
+  # ChromaDB specific settings (local storage)
   chromadb:
     # Path to store ChromaDB persistent data
     persist_directory: "./chroma_db"
@@ -16,6 +16,26 @@ vector_db:
     # Embedding dimension (will be auto-detected based on weights)
     # This is a fallback value
     embedding_dimension: 512
+
+  # Milvus/Zilliz Cloud specific settings (cloud storage)
+  # Get your free cluster at https://zilliz.com
+  milvus:
+    # Zilliz Cloud cluster URI (e.g., https://inxxx.aws-us-west-2.vectordb.zillizcloud.com)
+    uri: "https://inxxx.aws-us-west-2.vectordb.zillizcloud.com"
+    # Zilliz Cloud API key or username:password
+    token: "your_zilliz_api_key_or_token_here"
+    # Collection name prefix for CNN weights
+    collection_name: "cnn_weights"
+
+  # Qdrant Cloud specific settings (cloud storage with higher dimension limit)
+  # Get your free cluster at https://qdrant.tech
+  qdrant:
+    # Qdrant Cloud cluster URI (e.g., https://xyz.qdrant.tech:6333)
+    uri: "https://xyz.qdrant.tech"
+    # Qdrant Cloud API key
+    api_key: "your_qdrant_api_key_here"
+    # Collection name prefix for CNN weights
+    collection_name: "cnn_weights"
 
   # Search settings
   search:
