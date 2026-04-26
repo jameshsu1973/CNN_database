@@ -29,6 +29,44 @@ from cnn_weight_vault.db_initialization import (
 from cnn_weight_vault.config import get_config
 
 
+def create_db_cnn_from_vault(vault_weights: dict, num_classes: int = 1) -> nn.Module:
+    """
+    Create CNN model directly from vault weights (no He init).
+    Uses standard nn.Module layers.
+    """
+    class SimpleVaultCNN(nn.Module):
+        def __init__(self, num_classes):
+            super().__init__()
+            self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(32)
+            self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(64)
+            self.fc1 = nn.Linear(64 * 8 * 8, 128)
+            self.fc2 = nn.Linear(128, num_classes)
+        
+        def forward(self, x):
+            x = torch.relu(self.bn1(self.conv1(x)))
+            x = torch.max_pool2d(x, 2)
+            x = torch.relu(self.bn2(self.conv2(x)))
+            x = torch.max_pool2d(x, 2)
+            x = x.view(x.size(0), -1)
+            x = torch.relu(self.fc1(x))
+            x = self.fc2(x)
+            return x
+    
+    model = SimpleVaultCNN(num_classes)
+    
+    # Load vault weights directly (no He init)
+    device = 'cpu'
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in vault_weights:
+                param.data = torch.from_numpy(vault_weights[name]).to(device)
+                print(f"  [VaultInit] Loaded: {name}")
+    
+    return model
+
+
 class BinaryCatDataset(Dataset):
     """CIFAR-100 converted to binary: caterpillar (class 10) = 1, worm (class 99) = 0"""
     
@@ -260,24 +298,19 @@ def second_training_run(vault, num_epochs=3):
         print(f"[1] Found category: '{best_category}' (score={similarity:.4f})")
         vault_weights = vault.get_category_weights(best_category)
         if vault_weights is not None:
-            print(f"[DBInit] Loading weights from vault...")
+            print(f"[VaultInit] Loading weights from vault (no He init)...")
     
-    # Step 3: 创建模型并加载权重
+    # Step 3: 创建模型
     print(f"[2] Creating model...")
-    DBConv2d.set_force_load(False)  # 不强制从 vault 加载
-    DBConv2d.set_object_category(best_category if vault_weights else None)
     
-    model = create_db_cnn(vault, num_classes=1).to(device)
-    
-    # 直接加载 vault 权重（覆盖 He init）
     if vault_weights is not None:
-        with torch.no_grad():
-            for name, param in model.named_parameters():
-                if name in vault_weights:
-                    param.data = torch.from_numpy(vault_weights[name]).to(device)
-                    print(f"  - Loaded: {name}")
-        print(f"[DBInit] Vault initialization complete!")
+        # 直接从 vault 权重创建模型（不经过 He init）
+        model = create_db_cnn_from_vault(vault_weights, num_classes=1).to(device)
     else:
+        # 没有 vault 权重，使用 He init
+        DBConv2d.set_force_load(False)
+        DBConv2d.set_object_category(None)
+        model = create_db_cnn(vault, num_classes=1).to(device)
         print(f"[DBInit] No similar category found - using cold start")
     
     # Data transforms
