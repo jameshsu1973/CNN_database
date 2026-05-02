@@ -21,24 +21,33 @@ from .qdrant_vault import QdrantWeightVault
 # Configuration
 from .config import get_config, reload_config, Config
 
-# Database-aware layers (unified for classification & binary classification)
-from .db_initialization import DBConv2d, DBLinear, DBModelWrapper, create_db_cnn
+# Qdrant vault (cloud)
+from .qdrant_vault import QdrantWeightVault
+
+# Configuration
+from .config import get_config, reload_config, Config
+
+# Generic weight management (works with any PyTorch model)
+from .wrap import (
+    extract_weights,
+    load_weights,
+    save_model_to_vault,
+    load_model_from_vault,
+    find_similar_model,
+    TrainingHook
+)
 
 __all__ = [
-    # ChromaDB vault (local)
-    'ChromaWeightVault',
-    
-    # Milvus vault (cloud)
-    'MilvusWeightVault',
-    
-    # Qdrant vault (cloud)
+    # Qdrant vault (cloud) - only supported now
     'QdrantWeightVault',
 
-    # Layers
-    'DBConv2d',
-    'DBLinear',
-    'DBModelWrapper',
-    'create_db_cnn',
+    # Generic weight management
+    'extract_weights',
+    'load_weights',
+    'save_model_to_vault',
+    'load_model_from_vault',
+    'find_similar_model',
+    'TrainingHook',
 
     # Configuration
     'get_config',

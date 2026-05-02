@@ -2,8 +2,8 @@
 # Vector Database Settings
 
 vector_db:
-  # Database type: chromadb, milvus, qdrant (currently supported: chromadb, milvus, qdrant)
-  type: chromadb
+  # Database type: qdrant (currently only qdrant is supported)
+  type: qdrant
 
   # ChromaDB specific settings (local storage)
   chromadb:
@@ -30,10 +30,10 @@ vector_db:
   # Qdrant Cloud specific settings (cloud storage with higher dimension limit)
   # Get your free cluster at https://qdrant.tech
   qdrant:
-    # Qdrant Cloud cluster URI (e.g., https://xyz.qdrant.tech:6333)
-    uri: "https://xyz.qdrant.tech"
+    # Qdrant Cloud cluster URL (e.g., https://xyz.qdrant.tech)
+    url: "https://aee6f6e3-503a-4368-9950-ca7599a12bdf.us-west-1-0.aws.cloud.qdrant.io"
     # Qdrant Cloud API key
-    api_key: "your_qdrant_api_key_here"
+    api_key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6MzliZjYyZDctNDBiYS00YmU0LWE2NmYtYzNjOGNhNmFiYzkwIn0.vg70l8ab2KNGoKfCjAbOF5mU6JvsjoJF5u3jZ1rvEFg"
     # Collection name prefix for CNN weights
     collection_name: "cnn_weights"
 

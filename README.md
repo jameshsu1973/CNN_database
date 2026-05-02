@@ -1,27 +1,33 @@
-# Database-Driven CNN Initialization
+# CNN Weight Vault - 資料庫驅動的 CNN 權重初始化系統
 
-A PyTorch implementation of Database-Driven CNN Weight Initialization using **ChromaDB** vector database for efficient weight retrieval.
+## 專案目標
+
+建立一個 CNN 權重資料庫，讓不同任務的模型可以互相分享學習到的權重，實現**遷移學習**。
+
+### 核心功能
+- 儲存訓練好的 CNN 權重到向量資料庫
+- 根據**圖片特徵**進行相似度搜尋，找到相似的已訓練類別
+- 新任務可以從資料庫中取得相似類別的權重作為初始化
+
+---
 
 ## Overview
 
-This project replaces traditional random weight initialization (He/Xavier) with a queryable, cumulative database of optimized historical weights using **ChromaDB** as the vector database backend. The system supports:
+A PyTorch implementation of **CNN Weight Vault** for transfer learning via vector database. Instead of random initialization (He/Xavier), new models query the vault to find similar categories and initialize with proven weights.
 
-- **Image Classification** (MNIST, CIFAR-10, etc.)
-- **Object Detection** (single-class and multi-class)
-- **Transfer Learning** (cross-category weight sharing)
-- **Existing Model Wrapping** (ResNet, VGG, etc. without modification)
-- **ChromaDB Integration** (HNSW indexing, cosine similarity, persistent storage)
+**Key Innovation**: Image-based similarity search - match tasks by analyzing training image statistics, not just model architecture.
+
+---
 
 ## Key Features
 
-1. **ChromaDB Vector Database**: Native vector storage with HNSW indexing for O(log n) similarity search
-2. **Automatic Weight Storage**: After training epochs, weights are automatically stored to ChromaDB
-3. **Smart Initialization**: New models initialize from similar weights in the database using cosine similarity
-4. **Force Load Mode**: Bypass similarity checks to guarantee vault weight loading
-5. **Object Category Tagging**: Label weights by object type (e.g., "cat", "dog") for transfer learning
-6. **Cold Start Fallback**: Falls back to He initialization when database is empty
-7. **Top-K Masking**: Only most influential weights (top 30%) are stored
-8. **Persistent Storage**: Automatic persistence via DuckDB + Parquet backend
+1. **Qdrant Cloud Vector Database**: Cloud-based HNSW indexing for O(log n) similarity search
+2. **Image-Based Similarity**: Match new datasets to similar categories using image statistics (mean, std, histogram)
+3. **Complete Weight Storage**: Full model weights stored as JSON in payload (not just layer vectors)
+4. **Direct Model Creation**: `create_db_cnn_from_vault()` loads weights directly, bypassing He init
+5. **Cold Start Fallback**: Falls back to He initialization when no similar category found
+
+---
 
 ## Installation
 
@@ -32,419 +38,273 @@ pip install -r requirements.txt
 **Requirements**:
 - Python 3.8+
 - PyTorch 2.0+
-- NumPy
-- torchvision
-- **ChromaDB >= 0.4.22** (vector database)
-- PyYAML (configuration)
+- NumPy, torchvision
+- **qdrant-client** (Qdrant Cloud client)
+- PyYAML
+
+---
 
 ## Quick Start
 
-### 1. Basic Image Classification (using ChromaDB)
+### 1. First Training (Cold Start + Store)
 
 ```python
-from cnn_weight_vault.chroma_vault import ChromaWeightVault
-from cnn_weight_vault.db_initialization import create_db_cnn, DBModelWrapper
+from cnn_weight_vault.qdrant_vault import QdrantWeightVault
+from cnn_weight_vault.db_initialization import create_db_cnn
 
-# Create ChromaDB vault
-vault = ChromaWeightVault(
-    collection_name="cnn_weights",
-    persist_directory="./chroma_db",
-    similarity_threshold=0.85,
-    top_k_ratio=0.3
+# Connect to Qdrant Cloud
+vault = QdrantWeightVault(
+    url="https://aee6f6e3-503a-4368-9950-ca7599a12bdf.us-west-1-0.aws.cloud.qdrant.io:6333",
+    api_key="your_api_key",
+    collection_name="cnn_weights"
 )
 
-# Create model with DB-aware layers
-model = create_db_cnn(vault, num_classes=10)
-wrapper = DBModelWrapper(model, vault, model_name="my_cnn")
+# Create model (uses He initialization)
+model = create_db_cnn(vault, num_classes=1)
 
-# Train...
-for epoch in range(num_epochs):
-    train_loss = train_epoch(model, ...)
-    test_acc = test_epoch(model, ...)
+# Train model...
+train_model(model)
 
-    # Store weights to ChromaDB vault after each epoch
-    wrapper.store_epoch_weights(epoch, test_acc)
+# Store to vault with image features
+model_state = {name: param.data for name, param in model.named_parameters()}
+image_sample = [train_dataset[i][0] for i in range(50)]
 
-# Save vault (ChromaDB auto-persists)
-vault.save_vault()
-```
-
-### 2. Object Detection (using ChromaDB)
-
-```python
-from cnn_weight_vault.chroma_vault import ChromaWeightVault
-from cnn_weight_vault.detection_model import create_detection_model, DetectionModelWrapper
-
-# Create ChromaDB vault
-vault = ChromaWeightVault(
-    collection_name="detection_weights",
-    persist_directory="./chroma_db_detection",
-    similarity_threshold=0.3
-)
-
-# Create object detection model (e.g., cat detector)
-model = create_detection_model(
-    vault,
-    object_category="cat",
-    num_classes=1
-)
-wrapper = DetectionModelWrapper(
-    model,
-    vault,
-    model_name="cat_detector",
-    object_category="cat"
-)
-
-# Train...
-for epoch in range(num_epochs):
-    train_loss, train_map = train_epoch(model, ...)
-
-    # Store weights to ChromaDB
-    wrapper.store_epoch_weights(epoch, train_map)
-
-wrapper.save_vault()
-```
-
-### 3. Force Load Mode
-
-Force load mode ensures weights are always loaded from vault (if available):
-
-```python
-from cnn_weight_vault.chroma_vault import ChromaWeightVault
-from cnn_weight_vault.detection_model import DBConv2dDetect, DBLinearDetect
-
-# Load existing ChromaDB vault
-vault = ChromaWeightVault(persist_directory="./chroma_db")
-
-# Enable force load mode
-DBConv2dDetect.set_force_load(True)
-DBLinearDetect.set_force_load(True)
-
-# Create model - will FORCE load from vault
-model = create_detection_model(
-    vault,
-    object_category="cat",
-    force_load=True  # Force load parameter
+vault.store_category_weights(
+    model_state=model_state,
+    model_name="SimpleCNN",
+    category="caterpillar",
+    epoch=3,
+    accuracy=59.5,
+    dataset_sample=image_sample
 )
 ```
 
-### 4. Wrap Existing Models (ResNet, VGG, etc.)
-
-Convert ANY PyTorch model to use database-driven initialization:
+### 2. Second Training (Vault Init via Image Similarity)
 
 ```python
-import torchvision.models as models
-from cnn_weight_vault.chroma_vault import ChromaWeightVault
-from cnn_weight_vault.detection_model import convert_to_db_layers
+# Query vault with new dataset images
+vault = QdrantWeightVault(url=..., api_key=..., collection_name="cnn_weights")
 
-# Load pretrained ResNet-18
-model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+# Find similar category using image features
+image_sample = [new_dataset[i][0] for i in range(50)]
+best_category, similarity = vault.find_similar_category_by_images(image_sample)
 
-# Create ChromaDB vault
-vault = ChromaWeightVault(persist_directory="./chroma_db_resnet")
+# Load weights from similar category
+if best_category and similarity > 0.3:
+    vault_weights = vault.get_category_weights(best_category)
+    model = create_db_cnn_from_vault(vault_weights, num_classes=1)
+else:
+    model = create_db_cnn(vault, num_classes=1)  # Cold start
 
-# Wrap model with DB-aware layers
-model_db = convert_to_db_layers(
-    model,
-    vault=vault,
-    object_category="animal",
-    force_load=False
-)
-
-# Forward pass works normally
-output = model_db(torch.randn(1, 3, 224, 224))
-
-# Now train and weights will be stored to ChromaDB
+train_model(model)
 ```
 
-## Running Examples
+---
 
-### Object Detection Demo
+## Database Schema (Qdrant Cloud)
 
-```bash
-python train_detection.py
+### Collection: `cnn_weights`
+
+**Single collection**, each point represents one **category**.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Unique point ID |
+| `vector` | float[512] | Image features for HNSW search |
+
+### Payload Structure
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model_name` | str | Model identifier (e.g., "SimpleCNN") |
+| `category` | str | Object category (e.g., "caterpillar") |
+| `epoch` | int | Training epoch |
+| `accuracy` | float | Model accuracy (%) |
+| `weights` | dict | Complete model weights (JSON) |
+| `image_stats` | dict | Image statistics (mean, std, num_samples) |
+
+### Visual Schema
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Collection: cnn_weights (vectors: 512-dim, COSINE, HNSW index)         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Point 1 (UUID-a1b2...)              Point 2 (UUID-c3d4...)           │
+│  ┌──────────────────────────┐          ┌──────────────────────────┐     │
+│  │ vector: [0.45, 0.22,     │          │ vector: [0.52, 0.18,     │     │
+│  │        0.12, ...]        │          │        0.33, ...]        │     │
+│  │                          │          │                          │     │
+│  │ payload:                 │          │ payload:                 │     │
+│  │   category: "caterpillar"│          │   category: "cat"        │     │
+│  │   model_name: "SimpleCNN"│          │   model_name: "SimpleCNN"│    │
+│  │   epoch: 3               │          │   epoch: 5              │     │
+│  │   accuracy: 59.5         │          │   accuracy: 72.3         │     │
+│  │   weights: {              │          │   weights: {             │     │
+│  │     conv1.weight: [...], │          │     conv1.weight: [...],│     │
+│  │     fc1.weight: [...],   │          │     fc1.weight: [...],  │     │
+│  │     ...                  │          │     ...                 │     │
+│  │   }                      │          │   }                     │     │
+│  │   image_stats: {mean, std}│          │   image_stats: {mean, std}│   │
+│  └──────────────────────────┘          └──────────────────────────┘     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-This demonstrates:
-- First training run (cold start with He initialization)
-- Second training run (force load from vault)
-- Comparison of convergence speed
+### Vector: Image Features (max 512 dimensions)
 
-**Expected Output**:
-```
-============================================================
-FIRST TRAINING: CAT DETECTION (Cold Start)
-============================================================
-[DBInit] Layer conv_0: Cold start - using He initialization
-Epoch 1: Train Loss=7.31, Test mAP=31.23%
-Epoch 2: Train Loss=5.12, Test mAP=52.34%
-Epoch 3: Train Loss=3.89, Test mAP=68.91%
+Image statistics are used as the feature vector for similarity search:
 
-============================================================
-SECOND TRAINING: CAT DETECTION (Vault-Init)
-MODE: FORCE LOAD - Will use vault weights regardless of similarity
-============================================================
-[DBInit] Layer conv_0: Initialized from vault [FORCED]
-Epoch 1: Train Loss=2.70, Test mAP=61.45%  # 2.7x faster start!
-Epoch 2: Train Loss=2.15, Test mAP=72.34%
-Epoch 3: Train Loss=1.89, Test mAP=78.92%
-```
+| Feature Type | Per Image | × 50 Images | Dimensions |
+|-------------|-----------|-------------|------------|
+| Basic stats (mean, std, min, max) | 4 | 4 × 50 | 200 |
+| Histogram (8-bin normalized) | 8 | 8 × 50 | 400 |
+| **Total** | **12** | | **600** |
 
-### Wrap Existing Model Demo
+**Note**: Actual dimension is capped at `MAX_FEATURES = 512` — features beyond 512 are truncated.
 
-```bash
-python wrap_existing_cnn_demo.py
-```
 
-This demonstrates:
-- Wrapping torchvision ResNet-18 (20 Conv2d → 20 DBConv2dDetect)
-- Wrapping torchvision VGG-16 (13 Conv2d → 13 DBConv2dDetect)
-- Forward pass verification
-
-### Classification Demo
-
-```bash
-python train_example.py
-```
-
-MNIST classification example with vault initialization.
-
-## Usage Patterns
-
-### Pattern 1: First Training (Cold Start)
-
+**Histogram calculation** (`torch.histc`):
 ```python
-from cnn_weight_vault.chroma_vault import ChromaWeightVault
-
-# Create new ChromaDB vault
-vault = ChromaWeightVault(persist_directory="./chroma_db")
-
-# Create model (will use He initialization)
-model = create_detection_model(vault, object_category="cat")
-wrapper = DetectionModelWrapper(model, vault, model_name="cat_detector")
-
-# Train and store weights
-for epoch in range(num_epochs):
-    train(model, ...)
-    wrapper.store_epoch_weights(epoch, accuracy)
-
-vault.save_vault()
+hist = torch.histc(img_flat, bins=8)      # 8-bin histogram
+hist = hist / img_flat.numel()           # Normalize by total pixels
+# Result: 8 values representing pixel intensity distribution
 ```
 
-### Pattern 2: Subsequent Training (Vault-Init with Similarity)
+### Search Flow
 
-```python
-# ChromaDB vault auto-loads from persist_directory
-vault = ChromaWeightVault(persist_directory="./chroma_db")
-
-# Create model (will auto-load if similarity > threshold)
-model = create_detection_model(vault, object_category="cat")
-
-# Train...
 ```
-
-### Pattern 3: Force Load Mode (Guaranteed Vault-Init)
-
-```python
-# ChromaDB vault auto-loads from persist_directory
-vault = ChromaWeightVault(persist_directory="./chroma_db")
-
-# Create model with force_load=True
-model = create_detection_model(
-    vault,
-    object_category="cat",
-    force_load=True  # Always use vault weights if available
-)
+┌─────────────┐     Extract     ┌─────────────┐     HNSW      ┌──────────────────┐
+│ New Dataset │ ──────────────→ │ Image Features│ ───────────→ │ cnn_weights      │
+│ (50 imgs)   │   (512-dim)    │ (512-dim)     │   Search    │ collection       │
+└─────────────┘                └─────────────┘               └────────┬────────┘
+                                                                          │
+                    ←── Most Similar Category + Similarity Score ──────────┘
+                              │
+                              ↓
+              ┌───────────────────────────────┐
+              │  similarity > threshold?       │
+              └───────────────┬───────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ↓ (yes)                        ↓ (no)
+    ┌─────────────────────┐        ┌─────────────────┐
+    │ get_category_weights │        │ create_db_cnn()  │
+    │ → create_db_cnn_    │        │ (He init)       │
+    │   from_vault()      │        └─────────────────┘
+    └─────────────────────┘
 ```
-
-### Pattern 4: Cross-Category Transfer
-
-```python
-# Train on "cat"
-vault = ChromaWeightVault(persist_directory="./chroma_db")
-model = create_detection_model(vault, object_category="cat")
-# ... train and save ...
-
-# Train on "dog" - will try to use "cat" weights if no "dog" weights
-model = create_detection_model(vault, object_category="dog")
-# System gives 20% similarity boost to same-category weights
-```
-
-## API Reference
-
-### ChromaWeightVault
-
-```python
-vault = ChromaWeightVault(
-    collection_name="cnn_weights",      # Collection name prefix
-    persist_directory="./chroma_db",    # ChromaDB storage path
-    similarity_threshold=0.3,           # Cosine similarity threshold
-    top_k_ratio=0.3                     # Retain top 30% weights
-)
-
-# Methods
-vault.store_weights(layer, layer_name, model_name, epoch, accuracy, category)
-vault.get_initialization_weights(layer, layer_name, category, force=False)
-vault.has_weights_for_layer(layer, layer_name)
-vault.save_vault()
-vault.migrate_from_pickle(pickle_path)  # Migrate from legacy pickle vault
-```
-vault.get_stats()
-```
-
-### DBConv2dDetect / DBLinearDetect
-
-```python
-# Class methods for configuration
-DBConv2dDetect.set_vault(vault)
-DBConv2dDetect.set_model_name("my_model")
-DBConv2dDetect.set_object_category("cat")
-DBConv2dDetect.set_force_load(True)  # Enable force load
-DBConv2dDetect.reset_layer_counter()  # Reset before creating model
-```
-
-### DetectionModelWrapper
-
-```python
-wrapper = DetectionModelWrapper(
-    model,
-    vault,
-    model_name="detector",
-    object_category="cat",
-    force_load=False
-)
-
-# Methods
-wrapper.store_epoch_weights(epoch, accuracy)
-wrapper.save_vault()
-wrapper.get_vault_stats()
-```
-
-### convert_to_db_layers
-
-```python
-from detection_model import convert_to_db_layers
-
-wrapped_model = convert_to_db_layers(
-    existing_model,      # Any nn.Module
-    vault=vault,         # DetectionWeightVault instance
-    object_category="cat",
-    force_load=False     # Whether to force load from vault
-)
-```
-
-## How It Works
 
 ### Weight Storage Flow
 
 ```
 Training Complete
        ↓
-Top-K Masking (retain top 30% by |weight|)
+Extract image features (512-dim)
        ↓
-Flatten Kernel → 1D Vector
-       ↓
-Store in Vault with Metadata (model, epoch, accuracy, category)
-       ↓
-Update HNSW Graph Structure
+Upsert Point to Qdrant
+├── vector = image features
+└── payload = {
+      model_name,
+      category,
+      epoch,
+      accuracy,
+      weights (full JSON),
+      image_stats
+    }
 ```
 
-### Weight Initialization Flow
+---
 
+## API Reference
+
+### QdrantWeightVault
+
+```python
+vault = QdrantWeightVault(
+    url="https://aee6f6e3-503a-4368-9950-ca7599a12bdf.us-west-1-0.aws.cloud.qdrant.io:6333",
+    api_key="your_api_key",
+    collection_name="cnn_weights"
+)
 ```
-Create Layer
-     ↓
-Check Vault for Similar Weights
-     ↓
-├─ Force Mode ON ─→ Load from Vault (if exists)
-├─ Similarity > Threshold ─→ Load from Vault
-└─ Otherwise ─→ He Initialization (Cold Start)
+
+| Method | Description |
+|--------|-------------|
+| `store_category_weights()` | Store model weights + image features |
+| `get_category_weights(category)` | Retrieve weights for a specific category |
+| `find_similar_category_by_images(images)` | Search by image features |
+| `find_similar_category(model_state)` | Search by model features |
+| `get_stats()` | Get vault statistics |
+
+### create_db_cnn_from_vault
+
+```python
+def create_db_cnn_from_vault(vault_weights: dict, num_classes: int = 1) -> nn.Module
 ```
 
-### Similarity Search
+Creates a model with weights from vault, **bypassing He initialization**.
 
-- **Cosine Similarity**: `S(A,B) = (A·B) / (||A||·||B||)`
-- **HNSW Distance**: `Dist(A,B) = 1 - S(A,B)`
-- **Search Complexity**: O(log n) using greedy graph traversal
+---
 
 ## File Structure
 
-| File | Description |
-|------|-------------|
-| `detection_vault.py` | Vector database with HNSW-inspired indexing |
-| `detection_model.py` | DB-aware PyTorch layers and model wrapper |
-| `train_detection.py` | Object detection training demo |
-| `wrap_existing_cnn_demo.py` | ResNet/VGG wrapping demo |
-| `example_wrap_existing_model.py` | Usage examples |
-| `train_example.py` | Classification training demo |
-
-## Technical Details
-
-### No PyTorch Modifications
-
-The system uses inheritance, not modification:
-
-```python
-# Standard PyTorch
-nn.Conv2d(in_channels, out_channels, kernel_size)
-
-# Database-driven version
-class DBConv2dDetect(nn.Conv2d):  # Inherit
-    def __init__(self, ...):
-        super().__init__(...)  # Call parent
-        self._initialize_from_vault()  # Add DB initialization
+```
+CNN_database/
+├── cnn_weight_vault/
+│   ├── __init__.py
+│   ├── config.py              # Configuration management
+│   ├── qdrant_vault.py        # Qdrant Cloud (main)
+│   ├── chroma_vault.py        # ChromaDB (legacy)
+│   ├── milvus_vault.py        # Milvus (legacy)
+│   ├── db_initialization.py   # DB-driven initialization
+│   └── detection_model.py     # Detection model wrapper
+├── config/
+│   └── settings.yaml          # Configuration file
+├── scripts/
+│   └── migrate_to_chroma.py   # Migration script
+└── logs/
+    └── 0427.md                # Development log
 ```
 
-### Object Category Support
+---
 
-Weights are tagged by object category for transfer learning:
+## Configuration
 
-```python
-# Training on cats
-model = create_detection_model(vault, object_category="cat")
+Edit `config/settings.yaml`:
 
-# Training on dogs - system prefers "dog" weights,
-# but will use "cat" weights if no "dog" weights available
-model = create_detection_model(vault, object_category="dog")
+```yaml
+vector_db:
+  type: qdrant
+  
+  qdrant:
+    url: "https://aee6f6e3-503a-4368-9950-ca7599a12bdf.us-west-1-0.aws.cloud.qdrant.io:6333"
+    api_key: "your_api_key"
+    collection_name: "cnn_weights"
+
+search:
+  similarity_threshold: 0.85
+  top_k_ratio: 0.3
 ```
 
-### Force Load Mode
+---
 
-Normal mode checks similarity before loading:
-- Similarity > threshold → Load from vault
-- Similarity ≤ threshold → He initialization
+## Qdrant Cloud Dashboard
 
-Force load mode:
-- If weights exist in vault → Load from vault
-- No weights in vault → He initialization
+Access your collections at:
+```
+https://aee6f6e3-503a-4368-9950-ca7599a12bdf.us-west-1-0.aws.cloud.qdrant.io:6333/dashboard#/collections
+```
 
-## Troubleshooting
+---
 
-### "All layers showing Cold Start"
+## Future Improvements
 
-- Vault is empty (first training) - this is expected
-- Set `similarity_threshold` lower (e.g., 0.0 to 0.3)
-- Use `force_load=True` to guarantee vault loading
+1. **PCA/dimensionality reduction** for better feature representation
+2. **Pretrained model features** (e.g., ResNet embeddings) for deeper similarity
+3. **Cross-architecture transfer** - weight sharing between different model architectures
+4. **Incremental learning** - continuously update vault with new training
 
-### Shape Mismatch Errors
-
-- Ensure layer dimensions match between stored and new weights
-- The system automatically falls back to He initialization on shape mismatch
-
-### "No weights being stored"
-
-- Call `wrapper.store_epoch_weights(epoch, accuracy)` after each epoch
-- Call `wrapper.save_vault()` at the end of training
-
-## Contributing
-
-This is a research implementation. Key areas for improvement:
-
-1. Full HNSW multi-layer graph structure
-2. Kernel size tolerance (5×5 vs 3×3 matching)
-3. Disk-based persistent indexing
-4. More layer types (BatchNorm, etc.)
-5. Real dataset integration (COCO, ImageNet)
+---
 
 ## License
 
@@ -452,5 +312,7 @@ MIT License - Research Use
 
 ## References
 
+- [Qdrant Cloud](https://qdrant.tech/)
+- [Qdrant Python Client](https://github.com/qdrant/qdrant-client)
 - HNSW: Malkov & Yashunin, "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs" (2016)
-- He Initialization: He et al., "Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification" (2015)
+- He Initialization: He et al., "Delving Deep into Rectifiers" (2015)

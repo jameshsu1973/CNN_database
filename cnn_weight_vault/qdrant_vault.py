@@ -663,10 +663,24 @@ class QdrantWeightVault:
 
     def _generate_topology_query(self, shape: tuple) -> np.ndarray:
         """Generate a deterministic query vector based on layer topology."""
+        if not shape or len(shape) == 0:
+            # 空形状，返回默认值
+            return np.array([0.0], dtype=np.float32)
+
+        total_params = np.prod(shape)
+        if total_params == 0:
+            return np.array([0.0], dtype=np.float32)
+
         np.random.seed(42)
         query = np.random.randn(*shape).astype(np.float32)
         query = query / np.linalg.norm(query)
-        return query.flatten()
+        flat = query.flatten()
+
+        # 确保返回的是数组
+        if flat.shape[0] == 0:
+            return np.array([0.0], dtype=np.float32)
+
+        return flat
 
     def _apply_top_k_mask(self, weight_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Apply top-k masking to weight tensor."""
@@ -930,8 +944,15 @@ class QdrantWeightVault:
 
         # Check if collection exists
         try:
-            collection_info = self.client.get_collection(collection_name=collection_name)
-            collection_dim = collection_info.vectors_config.size
+            if collection_name in self.collection_dims:
+                collection_dim = self.collection_dims[collection_name]
+            else:
+                collection_info = self.client.get_collection(collection_name=collection_name)
+                try:
+                    collection_dim = collection_info.config.vectors.size
+                except:
+                    collection_dim = collection_info.vectors_config.size
+                self.collection_dims[collection_name] = collection_dim
         except Exception:
             return None  # Collection doesn't exist
 
@@ -1318,6 +1339,179 @@ class QdrantWeightVault:
         except Exception as e:
             print(f"[QdrantVault] Error getting stats: {e}")
             return {'total_entries': 0, 'collections': 0, 'object_categories': []}
+
+    def _store_raw(self,
+                   vector: np.ndarray,
+                   layer_key: str,
+                   metadata: Dict[str, Any]):
+        """
+        通用存儲方法 - 存儲任意權重向量。
+
+        自動處理大維度向量：當維度超過 65535 時，使用指紋壓縮。
+
+        Args:
+            vector: 展平後的權重向量 (numpy array)
+            layer_key: 層鍵值（如 'conv_3_64_3_3', 'linear_512_10'）
+            metadata: 元數據字典
+        """
+        import uuid as uuid_lib
+
+        MAX_DIMENSION = 65535
+        FINGERPRINT_DIM = 32768
+
+        collection_name = self._get_collection_name(layer_key)
+        original_dimension = len(vector)
+        dimension = original_dimension
+        use_fingerprint = False
+
+        # 檢查是否需要指紋壓縮
+        if original_dimension > MAX_DIMENSION:
+            use_fingerprint = True
+            # 從 vector 恢復為 tensor 以計算指紋
+            shape = metadata.get('shape', [])
+            if shape:
+                tensor = torch.from_numpy(vector).reshape(tuple(shape))
+                vector = self._compute_fingerprint(tensor, target_dim=FINGERPRINT_DIM)
+                dimension = FINGERPRINT_DIM
+                print(f"[QdrantVault] Using fingerprint for {layer_key}: {original_dimension} -> {dimension}")
+
+        self._ensure_collection_exists(collection_name, dimension)
+
+        payload = {
+            'layer_name': metadata.get('layer_name', ''),
+            'model_name': metadata.get('model_name', ''),
+            'epoch': metadata.get('epoch', 0),
+            'accuracy': metadata.get('accuracy', 0.0),
+            'shape': json.dumps(metadata.get('shape', [])),
+            'layer_key': layer_key,
+            'object_category': metadata.get('object_category', ''),
+            'dtype': metadata.get('dtype', 'float32'),
+            'use_fingerprint': use_fingerprint,
+            'original_dimension': original_dimension if use_fingerprint else 0,
+        }
+
+        try:
+            self.client.upsert(
+                collection_name=collection_name,
+                points=[models.PointStruct(
+                    id=str(uuid_lib.uuid4()),
+                    vector=vector.tolist(),
+                    payload=payload
+                )]
+            )
+            self.total_entries += 1
+        except Exception as e:
+            print(f"[QdrantVault] Error storing raw weights: {e}")
+
+    def _get_weights_by_key(self,
+                          layer_key: str,
+                          shape: Tuple[int, ...],
+                          object_category: Optional[str] = None,
+                          force: bool = False) -> Optional[torch.Tensor]:
+        """
+        通用檢索方法 - 根據 layer_key 檢索權重。
+
+        自動處理指紋壓縮的向量。
+
+        Args:
+            layer_key: 層鍵值
+            shape: 期望的權重形狀
+            object_category: 對象類別
+            force: 是否強制檢索
+
+        Returns:
+            權重張量或 None
+        """
+        FINGERPRINT_DIM = 32768
+        MAX_DIMENSION = 65535
+
+        collection_name = self._get_collection_name(layer_key)
+
+        try:
+            collections = self.client.get_collections().collections
+            collection_names = [c.name for c in collections]
+            if collection_name not in collection_names:
+                return None
+        except Exception:
+            return None
+
+        try:
+            # 使用緩存的維度，避免 API 兼容性問題
+            if collection_name in self.collection_dims:
+                collection_dim = self.collection_dims[collection_name]
+            else:
+                # 嘗試獲取維度
+                collection_info = self.client.get_collection(collection_name=collection_name)
+                try:
+                    collection_dim = collection_info.config.vectors.size
+                except:
+                    collection_dim = collection_info.vectors_config.size
+                self.collection_dims[collection_name] = collection_dim
+
+            # 判斷是否是指紋 collection
+            use_fingerprint = (collection_dim == FINGERPRINT_DIM)
+
+            if use_fingerprint:
+                # 指紋模式：生成指紋查詢向量
+                dummy_tensor = torch.randn(*shape)
+                query_vector = self._compute_fingerprint(dummy_tensor, target_dim=FINGERPRINT_DIM)
+            else:
+                query_vector = self._generate_topology_query(shape)
+
+            if force:
+                results = self.client.query_points(
+                    collection_name=collection_name,
+                    query=[0.0] * collection_dim,
+                    limit=1,
+                    with_vectors=True,
+                    with_payload=True
+                )
+            else:
+                results = self.client.query_points(
+                    collection_name=collection_name,
+                    query=query_vector.tolist(),
+                    limit=1,
+                    score_threshold=self.similarity_threshold,
+                    with_vectors=True,
+                    with_payload=True
+                )
+
+            if not results or not results.points:
+                return None
+
+            # 轉換向量為 numpy 陣列
+            raw_vector = results.points[0].vector
+            if isinstance(raw_vector, list):
+                vector = np.array(raw_vector, dtype=np.float32)
+            else:
+                vector = np.array(raw_vector, dtype=np.float32)
+
+            payload = results.points[0].payload
+
+            # 檢查是否是指紋存儲
+            use_fingerprint_stored = payload.get('use_fingerprint', False)
+
+            if use_fingerprint_stored:
+                # 指紋無法精確重建，返回重塑後的近似值
+                print(f"[QdrantVault] Using fingerprint approximation for {layer_key}")
+                flat = vector
+                total_params = np.prod(shape)
+
+                if len(flat) < total_params:
+                    # 擴展指紋
+                    repeats = (total_params // len(flat)) + 1
+                    flat = np.tile(flat, repeats)[:total_params]
+                else:
+                    flat = flat[:total_params]
+
+                return torch.from_numpy(flat.reshape(shape))
+
+            # 正常情況
+            return torch.from_numpy(vector.reshape(shape))
+
+        except Exception as e:
+            print(f"[QdrantVault] Error getting weights by key: {e}")
+            return None
 
     def delete_collection(self, layer_key: str) -> bool:
         """Delete a collection for a specific layer key."""
