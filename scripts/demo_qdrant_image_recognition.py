@@ -52,18 +52,18 @@ class SimpleCNN(nn.Module):
 
 
 class BinaryCatDataset(Dataset):
-    """CIFAR-100 converted to binary: caterpillar (class 10) = 1, others = 0"""
+    """CIFAR-10 converted to binary: cat (3) = 1, others = 0"""
 
     def __init__(self, cifar_dataset, balanced=False):
         self.dataset = cifar_dataset
         self.balanced = balanced
 
         if balanced:
-            self.caterpillar_indices = [i for i, (_, label) in enumerate(cifar_dataset) if label == 10]
-            non_cat_indices = [i for i, (_, label) in enumerate(cifar_dataset) if label != 10]
+            self.cat_indices = [i for i, (_, label) in enumerate(cifar_dataset) if label == 3]
+            non_cat_indices = [i for i, (_, label) in enumerate(cifar_dataset) if label != 3]
             np.random.seed(42)
-            sampled_non_cat = np.random.choice(non_cat_indices, size=len(self.caterpillar_indices), replace=False)
-            self.selected_indices = self.caterpillar_indices + list(sampled_non_cat)
+            sampled_non_cat = np.random.choice(non_cat_indices, size=len(self.cat_indices), replace=False)
+            self.selected_indices = self.cat_indices + list(sampled_non_cat)
             np.random.shuffle(self.selected_indices)
 
     def __len__(self):
@@ -78,7 +78,7 @@ class BinaryCatDataset(Dataset):
         else:
             img, label = self.dataset[idx]
 
-        binary_label = 1 if label == 10 else 0
+        binary_label = 1 if label == 3 else 0
         return img, torch.tensor(binary_label, dtype=torch.float32)
 
 
@@ -131,7 +131,7 @@ def evaluate(model, test_loader, criterion, device):
     return avg_loss, accuracy
 
 
-def first_training_run(vault, object_category="caterpillar", num_epochs=3):
+def first_training_run(vault, object_category="cat", num_epochs=3):
     """First training: Binary classification (cat=1, other=0), cold start."""
     print("\n" + "=" * 70)
     print("FIRST TRAINING: Binary Cat Classification (Cold Start)")
@@ -158,8 +158,8 @@ def first_training_run(vault, object_category="caterpillar", num_epochs=3):
     ])
 
     # Use CIFAR-100
-    full_train = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
-    full_test = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+    full_train = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    full_test = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
 
     # Use 10% of training data
     train_size = int(0.10 * len(full_train))
@@ -207,7 +207,7 @@ def first_training_run(vault, object_category="caterpillar", num_epochs=3):
     return results
 
 
-def second_training_run(vault, object_category="caterpillar", num_epochs=3):
+def second_training_run(vault, object_category="cat", num_epochs=3):
     """Second training: Same task, initialize from vault weights."""
     print("\n" + "=" * 70)
     print("SECOND TRAINING: Binary Cat Classification (Vault-Init)")
@@ -234,8 +234,8 @@ def second_training_run(vault, object_category="caterpillar", num_epochs=3):
     ])
 
     # Load CIFAR-100
-    full_train = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
-    full_test = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+    full_train = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    full_test = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
 
     train_size = int(0.10 * len(full_train))
     train_subset = torch.utils.data.Subset(full_train, range(train_size))
@@ -302,7 +302,7 @@ def main():
     """Main demo function."""
     print("\n" + "=" * 70)
     print("DATABASE-DRIVEN CNN - IMAGE RECOGNITION (Qdrant Cloud)")
-    print("Task: caterpillar (1) vs not-caterpillar (0) on CIFAR-100")
+    print("Task: cat (1) vs not-cat (0) on CIFAR-10")
     print("Using generic weight management (wrap.py)")
     print("=" * 70)
 
@@ -332,10 +332,10 @@ def main():
         return
 
     # First training: cold start
-    cold_results = first_training_run(vault, object_category="caterpillar", num_epochs=3)
+    cold_results = first_training_run(vault, object_category="cat", num_epochs=3)
 
     # Second training: vault init
-    vault_results = second_training_run(vault, object_category="caterpillar", num_epochs=3)
+    vault_results = second_training_run(vault, object_category="cat", num_epochs=3)
 
     # Compare results
     compare_results(cold_results, vault_results)
